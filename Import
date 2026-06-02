@@ -1,0 +1,163 @@
+import React, { useState, useEffect } from "react";
+import { ethers } from "ethers";
+import LiveStreamEngagementABI from "../artifacts/contracts/LiveStreamEngagement.sol/LiveStreamEngagement.json";
+
+const CONTRACT_ADDRESS = "YOUR_DEPLOYED_CONTRACT_ADDRESS";
+const TOKEN_ADDRESS = "YOUR_TOKEN_CONTRACT_ADDRESS";
+
+declare global {
+  interface Window {
+    ethereum: any;
+  }
+}
+
+const LiveStreamEngagement: React.FC = () => {
+  const [contract, setContract] = useState<ethers.Contract | null>(null);
+  const [token, setToken] = useState<ethers.Contract | null>(null);
+  const [account, setAccount] = useState<string>("");
+  const [messages, setMessages] = useState<any[]>([]);
+  const [reactions, setReactions] = useState<any[]>([]);
+  const [messageContent, setMessageContent] = useState("");
+  const [tipAmount, setTipAmount] = useState("0");
+  const [reactionEmoji, setReactionEmoji] = useState("");
+
+  useEffect(() => {
+    const init = async () => {
+      if (window.ethereum) {
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const signer = provider.getSigner();
+        const address = await signer.getAddress();
+        setAccount(address);
+
+        const tokenContract = new ethers.Contract(
+          TOKEN_ADDRESS,
+          [
+            "function approve(address spender, uint256 amount) external returns (bool)",
+            "function transferFrom(address sender, address recipient, uint256 amount) external returns (bool)",
+            "function balanceOf(address account) external view returns (uint256)",
+          ],
+          signer
+        );
+        setToken(tokenContract);
+
+        const engagementContract = new ethers.Contract(
+          CONTRACT_ADDRESS,
+          LiveStreamEngagementABI.abi,
+          signer
+        );
+        setContract(engagementContract);
+
+        // Load messages and reactions
+        const msgs = await engagementContract.getMessages();
+        const reacts = await engagementContract.getReactions();
+        setMessages(msgs);
+        setReactions(reacts);
+      }
+    };
+    init();
+  }, []);
+
+  const sendMessage = async () => {
+    if (!contract || !token) return;
+    const amount = ethers.utils.parseEther(tipAmount);
+    if (amount.gt(0)) {
+      const txApprove = await token.approve(CONTRACT_ADDRESS, amount);
+      await txApprove.wait();
+    }
+    const tx = await contract.sendMessage(messageContent, amount);
+    await tx.wait();
+    const updatedMessages = await contract.getMessages();
+    setMessages(updatedMessages);
+    setMessageContent("");
+    setTipAmount("0");
+  };
+
+  const sendReaction = async () => {
+    if (!contract) return;
+    const tx = await contract.sendReaction(reactionEmoji);
+    await tx.wait();
+    const updatedReactions = await contract.getReactions();
+    setReactions(updatedReactions);
+    setReactionEmoji("");
+  };
+
+  const tipStreamer = async () => {
+    if (!contract || !token) return;
+    const amount = ethers.utils.parseEther(tipAmount);
+    const txApprove = await token.approve(CONTRACT_ADDRESS, amount);
+    await txApprove.wait();
+    const tx = await contract.tipStreamer(amount);
+    await tx.wait();
+    setTipAmount("0");
+  };
+
+  return (
+    <div>
+      <h1>LiveStream Engagement</h1>
+      <p>Connected Account: {account}</p>
+
+      <div>
+        <h2>Send a Message</h2>
+        <input
+          type="text"
+          value={messageContent}
+          onChange={(e) => setMessageContent(e.target.value)}
+          placeholder="Type your message"
+        />
+        <input
+          type="text"
+          value={tipAmount}
+          onChange={(e) => setTipAmount(e.target.value)}
+          placeholder="Tip amount (ETH)"
+        />
+        <button onClick={sendMessage}>Send Message</button>
+      </div>
+
+      <div>
+        <h2>Send a Reaction</h2>
+        <input
+          type="text"
+          value={reactionEmoji}
+          onChange={(e) => setReactionEmoji(e.target.value)}
+          placeholder="Enter an emoji (e.g., 🔥)"
+        />
+        <button onClick={sendReaction}>Send Reaction</button>
+      </div>
+
+      <div>
+        <h2>Tip the Streamer</h2>
+        <input
+          type="text"
+          value={tipAmount}
+          onChange={(e) => setTipAmount(e.target.value)}
+          placeholder="Tip amount (ETH)"
+        />
+        <button onClick={tipStreamer}>Tip Streamer</button>
+      </div>
+
+      <div>
+        <h2>Messages</h2>
+        <ul>
+          {messages.map((msg, index) => (
+            <li key={index}>
+              <strong>{msg.sender}:</strong> {msg.content} (Tip: {ethers.utils.formatEther(msg.tipAmount)} ETH)
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div>
+        <h2>Reactions</h2>
+        <ul>
+          {reactions.map((reaction, index) => (
+            <li key={index}>
+              <strong>{reaction.sender}:</strong> {reaction.emoji}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
+export default LiveStreamEngagement;
