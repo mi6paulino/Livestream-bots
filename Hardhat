@@ -1,0 +1,20 @@
+import { ethers } from "hardhat";
+
+async function main() {
+  const [deployer] = await ethers.getSigners();
+  console.log("Deploying contracts with the account:", deployer.address);
+
+  const tokenAddress = "YOUR_TOKEN_ADDRESS"; // Replace with your ERC20 token address
+  const streamerAddress = "YOUR_STREAMER_ADDRESS"; // Replace with the streamer's address
+
+  const LiveStreamEngagement = await ethers.getContractFactory("LiveStreamEngagement");
+  const contract = await LiveStreamEngagement.deploy(tokenAddress, streamerAddress);
+  await contract.deployed();
+
+  console.log("LiveStreamEngagement deployed to:", contract.address);
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
