@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract LiveStreamEngagement is Ownable {
+    struct Message {
+        address sender;
+        string content;
+        uint256 timestamp;
+        uint256 tipAmount;
+    }
+
+    struct Reaction {
+        address sender;
+        string emoji;
+        uint256 timestamp;
+    }
+
+    IERC20 public token;
+    address public streamer;
+    uint256 public totalTips;
+
+    Message[] public messages;
+    Reaction[] public reactions;
+
+    event MessageSent(address indexed sender, string content, uint256 tipAmount, uint256 timestamp);
+    event ReactionSent(address indexed sender, string emoji, uint256 timestamp);
+    event TipReceived(address indexed sender, uint256 amount, uint256 timestamp);
+
+    constructor(address _token, address _streamer) {
+        token = IERC20(_token);
+        streamer = _streamer;
+    }
+
+    function sendMessage(string memory content, uint256 tipAmount) external {
+        require(tipAmount == 0 || token.transferFrom(msg.sender, streamer, tipAmount), "Transfer failed");
+        messages.push(Message({
+            sender: msg.sender,
+            content: content,
+            timestamp: block.timestamp,
+            tipAmount: tipAmount
+        }));
+        totalTips += tipAmount;
+        emit MessageSent(msg.sender, content, tipAmount, block.timestamp);
+    }
+
+    function sendReaction(string memory emoji) external {
+        reactions.push(Reaction({
+            sender: msg.sender,
+            emoji: emoji,
+            timestamp: block.timestamp
+        }));
+        emit ReactionSent(msg.sender, emoji, block.timestamp);
+    }
+
+    function tipStreamer(uint256 amount) external {
+        require(token.transferFrom(msg.sender, streamer, amount), "Transfer failed");
+        totalTips += amount;
+        emit TipReceived(msg.sender, amount, block.timestamp);
+    }
+
+    function getTotalTips() external view returns (uint256) {
+        return totalTips;
+    }
+
+    function getMessages() external view returns (Message[] memory) {
+        return messages;
+    }
+
+    function getReactions() external view returns (Reaction[] memory) {
+        return reactions;
+    }
+}
