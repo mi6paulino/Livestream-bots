@@ -1,0 +1,208 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+library ConvexEntropy {
+    struct EntropyVector {
+        uint256 x; // Convex entropy
+        uint256 y; // Variance
+        uint256 z; // Skewness
+        uint256 t; // Kurtosis
+        uint256 flare; // Convex flare (second derivative)
+        uint256 integral; // Double integral of entropy
+    }
+
+    struct EntropyState {
+        uint256 entropy;
+        uint256 convexity;
+        uint256 flare;
+        uint256 integral;
+        uint256 timestamp;
+    }
+
+    function calculateConvexEntropy(
+        uint256[] memory dataPoints,
+        uint256 windowSize
+    ) internal pure returns (uint256) {
+        require(dataPoints.length > 0, "ConvexEntropy: empty dataset");
+        require(windowSize > 0, "ConvexEntropy: invalid window size");
+
+        uint256 total = 0;
+        uint256 count = dataPoints.length < windowSize ? dataPoints.length : windowSize;
+
+        for (uint256 i = 0; i < count; i++) {
+            total += dataPoints[i];
+        }
+
+        uint256 mean = total / count;
+        uint256 convexSum = 0;
+
+        for (uint256 i = 0; i < count; i++) {
+            uint256 diff = dataPoints[i] > mean ? dataPoints[i] - mean : mean - dataPoints[i];
+            convexSum += diff * diff;
+        }
+
+        return convexSum / count;
+    }
+
+    function calculateConvexFlare(
+        uint256[] memory dataPoints,
+        uint256 windowSize
+    ) internal pure returns (uint256) {
+        require(dataPoints.length >= windowSize, "ConvexEntropy: insufficient data");
+
+        uint256 flareSum = 0;
+        uint256 count = dataPoints.length < windowSize ? dataPoints.length : windowSize;
+
+        for (uint256 i = 1; i < count - 1; i++) {
+            uint256 secondDerivative = dataPoints[i + 1] - 2 * dataPoints[i] + dataPoints[i - 1];
+            flareSum += secondDerivative * secondDerivative;
+        }
+
+        return flareSum / (count - 2);
+    }
+
+    function calculateDoubleIntegral(
+        uint256[] memory dataPoints,
+        uint256 windowSize
+    ) internal pure returns (uint256) {
+        require(dataPoints.length >= windowSize, "ConvexEntropy: insufficient data");
+
+        uint256 integralSum = 0;
+        uint256 count = dataPoints.length < windowSize ? dataPoints.length : windowSize;
+
+        for (uint256 i = 1; i < count; i++) {
+            uint256 integralStep = (dataPoints[i] + dataPoints[i - 1]) * i / 2;
+            integralSum += integralStep;
+        }
+
+        return integralSum;
+    }
+
+    function calculateEntropyVector(
+        uint256[] memory dataPoints,
+        uint256 windowSize
+    ) internal pure returns (EntropyVector memory) {
+        require(dataPoints.length >= windowSize, "ConvexEntropy: insufficient data");
+
+        uint256 convexEntropy = calculateConvexEntropy(dataPoints, windowSize);
+        uint256 convexFlare = calculateConvexFlare(dataPoints, windowSize);
+        uint256 doubleIntegral = calculateDoubleIntegral(dataPoints, windowSize);
+
+        uint256 mean = 0;
+        uint256 variance = 0;
+        uint256 skewness = 0;
+        uint256 kurtosis = 0;
+
+        uint256 count = dataPoints.length < windowSize ? dataPoints.length : windowSize;
+
+        for (uint256 i = 0; i < count; i++) {
+            mean += dataPoints[i];
+        }
+        mean /= count;
+
+        for (uint256 i = 0; i < count; i++) {
+            uint256 diff = dataPoints[i] > mean ? dataPoints[i] - mean : mean - dataPoints[i];
+            variance += diff * diff;
+            skewness += diff * diff * diff;
+            kurtosis += diff * diff * diff * diff;
+        }
+
+        variance /= count;
+        skewness = (skewness / count) / (variance * sqrt(variance));
+        kurtosis = (kurtosis / count) / (variance * variance) - 3;
+
+        return EntropyVector({
+            x: convexEntropy,
+            y: variance,
+            z: skewness,
+            t: kurtosis,
+            flare: convexFlare,
+            integral: doubleIntegral
+        });
+    }
+
+    function calculateStreamEntropy(
+        uint256[] memory dataPoints,
+        uint256 windowSize,
+        uint256 interval
+    ) internal pure returns (EntropyState memory) {
+        require(dataPoints.length > 0, "ConvexEntropy: empty dataset");
+        require(windowSize > 0, "ConvexEntropy: invalid window size");
+        require(interval > 0, "ConvexEntropy: invalid interval");
+
+        uint256 convexEntropy = calculateConvexEntropy(dataPoints, windowSize);
+        uint256 convexFlare = calculateConvexFlare(dataPoints, windowSize);
+        uint256 doubleIntegral = calculateDoubleIntegral(dataPoints, windowSize);
+        uint256 timestamp = block.timestamp;
+
+        return EntropyState({
+            entropy: convexEntropy,
+            convexity: convexEntropy * convexEntropy,
+            flare: convexFlare,
+            integral: doubleIntegral,
+            timestamp: timestamp
+        });
+    }
+
+    function sqrt(uint256 x) internal pure returns (uint256) {
+        if (x == 0) return 0;
+        uint256 xx = x;
+        uint256 r = 1;
+        while (xx > r) {
+            xx = (x / r + r) / 2;
+            r++;
+        }
+        return xx;
+    }
+}
+
+contract LiveStreamBot {
+    using ConvexEntropy for *;
+
+    uint256[] private _streamData;
+    uint256 private _windowSize = 10;
+    uint256 private _interval = 60;
+
+    event EntropyCalculated(
+        uint256 entropy,
+        uint256 convexity,
+        uint256 flare,
+        uint256 integral,
+        uint256 timestamp
+    );
+
+    function addStreamData(uint256 dataPoint) external {
+        _streamData.push(dataPoint);
+    }
+
+    function calculateEntropy() external view returns (ConvexEntropy.EntropyState memory) {
+        ConvexEntropy.EntropyState memory state = this.calculateStreamEntropy(
+            _streamData,
+            _windowSize,
+            _interval
+        );
+
+        emit EntropyCalculated(
+            state.entropy,
+            state.convexity,
+            state.flare,
+            state.integral,
+            state.timestamp
+        );
+        return state;
+    }
+
+    function getEntropyVector() external view returns (ConvexEntropy.EntropyVector memory) {
+        return this.calculateEntropyVector(_streamData, _windowSize);
+    }
+
+    function setWindowSize(uint256 size) external {
+        require(size > 0, "LiveStreamBot: invalid window size");
+        _windowSize = size;
+    }
+
+    function setInterval(uint256 newInterval) external {
+        require(newInterval > 0, "LiveStreamBot: invalid interval");
+        _interval = newInterval;
+    }
+}
